@@ -1,17 +1,24 @@
-import SingleSongNode, { SongNodeRef } from '@/components/SongNode';
-import React, { DragEvent, useRef, useState, createRef, RefObject, ReactNode } from 'react';
+import SingleSongNode from '@/components/SongNode';
+import { SongFields, getSongTags } from '@/hooks/useGetSongTags';
+import React, { DragEvent, RefObject, createRef, useCallback, useRef, useState } from 'react';
+import SongPlayer, { SongNodeRef } from './SongPlayer';
+import cn from "classnames"
 
 enum Source {
   ACTIVE = "active",
   STASH = "stash",
 }
 
+enum PlayNext {
+  FORWARD = "forward",
+  BACKWARD = "backward"
+}
+
 type BoxElement = {
   uniqueKey: string;
-  reactNode: ReactNode;
+  songFields: SongFields
   ref: RefObject<HTMLDivElement>;
   source: Source;
-  reactNodeRef: RefObject<SongNodeRef>;
 };
 
 const preventDefault = (e: DragEvent<HTMLDivElement>) => {
@@ -27,6 +34,7 @@ const DnDPersonalized = () => {
   const draggedToBox = useRef<BoxElement | null>(null);
   const draggedBoxIdx = useRef<number | null>(null);
   const [currentlyPlaying, setCurrentlyPlaying] = useState<BoxElement | null>(null);
+  const songPlayerRef = createRef<SongNodeRef>();
 
   const getInsertPosition = (e: DragEvent<HTMLDivElement>): number => {
     // will think considering draggedToBox
@@ -104,62 +112,61 @@ const DnDPersonalized = () => {
     }
   }
 
-  const startPlayback = () => {
-    currentlyPlaying?.reactNodeRef.current?.pauseSong();
-    if (activeBoxList.length > 0) playThisNode(activeBoxList[0]);
-  }
-
-  const playThisNode = (node: BoxElement) => {
-    node.reactNodeRef.current?.playSong();
-    setCurrentlyPlaying(node);
-  }
-
-  const playNext = () => {
-    if (!currentlyPlaying) return;
-    const currIdx = activeBoxList.findIndex((ele) => {
-      ele.uniqueKey === currentlyPlaying.uniqueKey
-    })
-    if (currIdx === -1 || currIdx >= (activeBoxList.length - 1)) return;
-    playThisNode(activeBoxList[currIdx + 1]);
-  }
-
-  const handleManyFileAddition = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleManyFileAddition = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return;
-    let audioFileNodes: { node: ReactNode, fileName: string }[] = [];
-    let childRefArray: RefObject<SongNodeRef>[] = [];
+    let boxNodePropsArray: BoxElement[] = [];
     for (let i = 0; i < e.target.files.length; i++) {
-      const childRef = createRef<SongNodeRef>();
       const fileName = e.target.files[i].name;
-      audioFileNodes.push({
-        node: <SingleSongNode
-          blob={e.target.files[i]}
-          ref={childRef}
-          songEnded={playNext}
-          uniqueKey={`${fileName}-${i}`}
-        />,
-        fileName,
-      });
-      childRefArray.push(childRef);
+      const songFields = await getSongTags(e.target.files[i]);
+      boxNodePropsArray.push({
+        ref: createRef<HTMLDivElement>(),
+        source: Source.STASH,
+        uniqueKey: `${fileName}-${i}-${Math.random().toString(36).substring(7)}`,
+        songFields,
+      })
     }
     setOnHoldItems((prev) => ([
       ...prev,
-      ...audioFileNodes.map(({ node, fileName }, idx) => ({
-        reactNode: node,
-        ref: createRef<HTMLDivElement>(),
-        source: Source.STASH,
-        uniqueKey: `${fileName}-${idx}-${Math.random().toString(36).substring(7)}`,
-        reactNodeRef: childRefArray[idx],
-      }))
+      ...boxNodePropsArray
     ]))
   }
+
+  const startPlaying = () => {
+    if (currentlyPlaying) {
+      songPlayerRef.current?.playSong()
+      return;
+    }
+    if (activeBoxList.length < 1) return;
+    setCurrentlyPlaying(activeBoxList[0])
+  }
+
+  const pausePlaying = () => {
+    songPlayerRef.current?.pauseSong()
+  }
+
+  const playNext = useCallback((direction = PlayNext.BACKWARD) => {
+    if (!currentlyPlaying) return;
+    const currIdx = activeBoxList.findIndex((ele) =>
+      ele.uniqueKey === currentlyPlaying.uniqueKey
+    )
+    if (currIdx === -1) return;
+    setCurrentlyPlaying(
+      activeBoxList[(currIdx + (direction === PlayNext.FORWARD ? 1 : -1) + activeBoxList.length) % activeBoxList.length]
+    )
+  }, [currentlyPlaying, activeBoxList])
+
+  const playForward = () => playNext(PlayNext.FORWARD)
+  const playBackward = () => playNext(PlayNext.BACKWARD)
 
   return (
     <>
       <input multiple accept="audio/mpeg3" type="file" onChange={handleManyFileAddition} />
-      <button onClick={startPlayback}>Start Playing</button>
-      {activeBoxList.filter(ele => ele.reactNodeRef.current?.isPlaying()).map((ele) => (
-        <React.Fragment key={ele.uniqueKey}>{ele.reactNode}</React.Fragment>
-      ))}
+      {!currentlyPlaying && <button onClick={startPlaying}>Start</button>}
+      <div className='flex flex-row space-x-3'>
+        <button onClick={playBackward}>Prev</button>
+        <button onClick={playForward}>Next</button>
+      </div>
+      {currentlyPlaying && <SongPlayer handleSongEnd={playForward} currentSong={currentlyPlaying?.songFields} ref={songPlayerRef} />}
       <div
         onDrop={handleListDrop}
         onDragOver={preventDefault}
@@ -168,7 +175,9 @@ const DnDPersonalized = () => {
         {activeBoxList.map((ele, idx) => (
           <div
             key={`${ele.uniqueKey}-${idx}`}
-            className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30 align-middle justify-center flex items-center"
+            className={cn({
+              ["border border-red-300"]: ele.uniqueKey === currentlyPlaying?.uniqueKey,
+            })}
             draggable
             onDragStart={(e) => {
               draggingBox.current = ele;
@@ -179,13 +188,9 @@ const DnDPersonalized = () => {
               draggedBoxIdx.current = idx;
             }}
             ref={ele.ref}
-            onClick={() => {
-              if (ele.reactNodeRef.current) {
-                ele.reactNodeRef.current.playSong();
-              }
-            }}
+            onClick={() => setCurrentlyPlaying(ele)}
           >
-            {ele.reactNode}
+            <SingleSongNode songFields={ele.songFields} />
           </div>
         ))}
       </div>
@@ -198,13 +203,12 @@ const DnDPersonalized = () => {
           {onHoldItems.map((ele, idx) => (
             <div
               key={`${ele.uniqueKey}-${idx}`}
-              className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30 align-middle justify-center flex items-center"
               draggable
               onDragStart={(e) => {
                 draggingBox.current = ele;
               }}
             >
-              {ele.reactNode}
+              <SingleSongNode songFields={ele.songFields} />
             </div>))}
         </div>
       </div>

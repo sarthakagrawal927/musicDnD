@@ -1,4 +1,5 @@
-import React, { DragEvent, useRef, useState, createRef, RefObject } from 'react';
+import SingleSongNode from '@/components/SongNode';
+import React, { DragEvent, useRef, useState, createRef, RefObject, ReactNode, useEffect } from 'react';
 
 enum Source {
   ACTIVE = "active",
@@ -6,7 +7,8 @@ enum Source {
 }
 
 type BoxElement = {
-  num: number;
+  uniqueKey: string;
+  reactNode: ReactNode;
   ref: RefObject<HTMLDivElement>;
   source: Source;
 };
@@ -17,24 +19,22 @@ const preventDefault = (e: DragEvent<HTMLDivElement>) => {
 }
 
 const DnDPersonalized = () => {
-  const [activeBoxList, setActiveBoxList] = useState<BoxElement[]>(
-    Array.from({ length: 5 }, (_, i) => ({
-      num: i,
-      ref: createRef<HTMLDivElement>(),
-      source: Source.ACTIVE,
-    }))
-  );
-  const [onHoldItems, setOnHoldItems] = useState<BoxElement[]>(
-    Array.from({ length: 5 }, (_, i) => ({
-      num: i + 5,
-      ref: createRef<HTMLDivElement>(),
-      source: Source.STASH,
-    }))
-  );
+  const [activeBoxList, setActiveBoxList] = useState<BoxElement[]>([]);
+  const [onHoldItems, setOnHoldItems] = useState<BoxElement[]>([]);
 
   const draggingBox = useRef<BoxElement | null>(null);
   const draggedToBox = useRef<BoxElement | null>(null);
   const draggedBoxIdx = useRef<number | null>(null);
+  const [activeAudioFiles, setActiveAudioFiles] = useState<HTMLAudioElement[]>([]);
+
+  useEffect(() => {
+    if (activeAudioFiles.length > 0) {
+      activeAudioFiles[0].play();
+      activeAudioFiles[0].onended = () => {
+        console.log('ended');
+      }
+    }
+  }, [activeAudioFiles]);
 
   const getInsertPosition = (e: DragEvent<HTMLDivElement>): number => {
     // will think considering draggedToBox
@@ -112,16 +112,37 @@ const DnDPersonalized = () => {
     }
   }
 
+  const handleManyFileAddition = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files) return;
+    let audioFileNodes: { node: ReactNode, fileName: string }[] = [];
+    for (let i = 0; i < e.target.files.length; i++) {
+      audioFileNodes.push({
+        node: <SingleSongNode blob={e.target.files[i]} />,
+        fileName: e.target.files[i].name,
+      });
+    }
+    setOnHoldItems((prev) => ([
+      ...prev,
+      ...audioFileNodes.map(({ node, fileName }, idx) => ({
+        reactNode: node,
+        ref: createRef<HTMLDivElement>(),
+        source: Source.STASH,
+        uniqueKey: `${fileName}-${idx}-${Math.random().toString(36).substring(7)}`,
+      }))
+    ]))
+  }
+
   return (
     <>
+      <input multiple accept="audio/mpeg3" type="file" onChange={handleManyFileAddition} />
       <div
         onDrop={handleListDrop}
         onDragOver={preventDefault}
-        className='border border-dashed border-gray-400 grid lg:max-w-5xl lg:w-full lg:mb-0 lg:grid-cols-10 lg:text-left'
+        className='border border-dashed border-gray-400 min-h-40 grid lg:max-w-5xl lg:w-full lg:mb-0 lg:grid-cols-10 lg:text-left'
       >
         {activeBoxList.map((ele, idx) => (
           <div
-            key={ele.num}
+            key={`${ele.uniqueKey}-${idx}`}
             className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30 align-middle justify-center flex items-center"
             draggable
             onDragStart={(e) => {
@@ -134,7 +155,7 @@ const DnDPersonalized = () => {
             }}
             ref={ele.ref}
           >
-            {ele.num}
+            {ele.reactNode}
           </div>
         ))}
       </div>
@@ -144,16 +165,16 @@ const DnDPersonalized = () => {
           onDragOver={preventDefault}
           onDrop={handleStashDrop}
         >
-          {onHoldItems.map((ele) => (
+          {onHoldItems.map((ele, idx) => (
             <div
-              key={ele.num}
+              key={`${ele.uniqueKey}-${idx}`}
               className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30 align-middle justify-center flex items-center"
               draggable
               onDragStart={(e) => {
                 draggingBox.current = ele;
               }}
             >
-              {ele.num}
+              {ele.reactNode}
             </div>))}
         </div>
       </div>

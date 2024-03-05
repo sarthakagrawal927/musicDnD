@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import jsonmediatags from "../components/jsmediatags.min.js";
+import jsonmediatags from "../packages/jsmediatags.min.js";
 
 export type SongFields = {
   title: string;

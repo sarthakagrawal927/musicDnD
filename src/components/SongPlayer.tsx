@@ -1,4 +1,4 @@
-import React, { Ref, forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
+import React, { Ref, forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 'react';
 import { SongFields } from '@/hooks/useGetSongTags';
 import Image from 'next/image';
 
@@ -17,22 +17,25 @@ const SongPlayer = forwardRef(({ currentSong, handleSongEnd }: SongPlayerProps, 
   const audioRef = useRef<HTMLAudioElement>(null);
   const isPlayingRef = useRef<boolean>(false);
 
+  const playSong = useCallback(() => {
+    // console.log('playing', currentSong.title)
+    audioRef.current?.play()
+    isPlayingRef.current = true;
+    // no need to add dependencies due to ref
+  }, [])
+
+
   useEffect(() => {
     playSong();
-  }, [currentSong])
+  }, [playSong, currentSong])
 
   const isPlaying = () => {
     return isPlayingRef.current;
   }
 
-  const playSong = () => {
-    console.log('playing', currentSong.title)
-    audioRef.current?.play()
-    isPlayingRef.current = true;
-  }
 
   const pauseSong = () => {
-    console.log('pausing', currentSong.title)
+    // console.log('pausing', currentSong.title)
     audioRef.current?.pause();
     isPlayingRef.current = false;
   }

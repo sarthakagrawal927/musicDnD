@@ -1,40 +1,42 @@
-import SingleSongNode from '@/components/SongNode';
-import { SongFields, getSongTags } from '@/hooks/useGetSongTags';
-import React, { DragEvent, RefObject, createRef, useCallback, useRef, useState } from 'react';
-import SongPlayer, { SongNodeRef } from './SongPlayer';
-import cn from "classnames"
+import React, { DragEvent, createRef, useRef, useState } from 'react';
+import { Source } from '@/constants';
+import { getSongTags } from '@/hooks/useGetSongTags';
+import { useDndListContext } from '@/state/DnDContext';
+import { BoxElement } from '@/types';
+import cn from "classnames";
 
-enum Source {
-  ACTIVE = "active",
-  STASH = "stash",
-}
+/*to properly decouple the list:
+- Have ability to see the total ordered list of items
+  - Can add forwardRef to this component to have a function that returns the next valid element
+  - Share the ordered list state (-)
 
-enum PlayNext {
-  FORWARD = "forward",
-  BACKWARD = "backward"
-}
+- Ability to add new elements to stash with ease
+  - Share the stashed list across state (?)
 
-type BoxElement = {
-  uniqueKey: string;
-  songFields: SongFields
-  ref: RefObject<HTMLDivElement>;
-  source: Source;
-};
+- Get active selected element (if someone wants to play any song)
+  - Share the stashed list across state (-)
+  - Pass function to elements to setActiveElement
+*/
 
 const preventDefault = (e: DragEvent<HTMLDivElement>) => {
   e.stopPropagation();
   e.preventDefault();
 }
 
-const DnDPersonalized = () => {
-  const [activeBoxList, setActiveBoxList] = useState<BoxElement[]>([]);
-  const [onHoldItems, setOnHoldItems] = useState<BoxElement[]>([]);
+type DnDPersonalizedProps<T> = {
+  reactElement: (props: T) => React.JSX.Element
+}
 
-  const draggingBox = useRef<BoxElement | null>(null);
-  const draggedToBox = useRef<BoxElement | null>(null);
+function DnDPersonalized<T>(props: DnDPersonalizedProps<T>): JSX.Element {
+  const {
+    items: activeBoxList, setItems: setActiveBoxList,
+    activeItem, setActiveItem
+  } = useDndListContext<BoxElement<T>>();
+  const [onHoldItems, setOnHoldItems] = useState<BoxElement<T>[]>([]);
+
+  const draggingBox = useRef<BoxElement<T> | null>(null);
+  const draggedToBox = useRef<BoxElement<T> | null>(null);
   const draggedBoxIdx = useRef<number | null>(null);
-  const [currentlyPlaying, setCurrentlyPlaying] = useState<BoxElement | null>(null);
-  const songPlayerRef = createRef<SongNodeRef>();
 
   const getInsertPosition = (e: DragEvent<HTMLDivElement>): number => {
     // will think considering draggedToBox
@@ -114,15 +116,16 @@ const DnDPersonalized = () => {
 
   const handleManyFileAddition = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return;
-    let boxNodePropsArray: BoxElement[] = [];
+    let boxNodePropsArray: BoxElement<T>[] = [];
     for (let i = 0; i < e.target.files.length; i++) {
       const fileName = e.target.files[i].name;
-      const songFields = await getSongTags(e.target.files[i]);
+      const songFields = (await getSongTags(e.target.files[i])) as T;
       boxNodePropsArray.push({
         ref: createRef<HTMLDivElement>(),
         source: Source.STASH,
         uniqueKey: `${fileName}-${i}-${Math.random().toString(36).substring(7)}`,
-        songFields,
+        componentFields: songFields,
+        element: props.reactElement,
       })
     }
     setOnHoldItems((prev) => ([
@@ -131,42 +134,9 @@ const DnDPersonalized = () => {
     ]))
   }
 
-  const startPlaying = () => {
-    if (currentlyPlaying) {
-      songPlayerRef.current?.playSong()
-      return;
-    }
-    if (activeBoxList.length < 1) return;
-    setCurrentlyPlaying(activeBoxList[0])
-  }
-
-  const pausePlaying = () => {
-    songPlayerRef.current?.pauseSong()
-  }
-
-  const playNext = useCallback((direction = PlayNext.BACKWARD) => {
-    if (!currentlyPlaying) return;
-    const currIdx = activeBoxList.findIndex((ele) =>
-      ele.uniqueKey === currentlyPlaying.uniqueKey
-    )
-    if (currIdx === -1) return;
-    setCurrentlyPlaying(
-      activeBoxList[(currIdx + (direction === PlayNext.FORWARD ? 1 : -1) + activeBoxList.length) % activeBoxList.length]
-    )
-  }, [currentlyPlaying, activeBoxList])
-
-  const playForward = () => playNext(PlayNext.FORWARD)
-  const playBackward = () => playNext(PlayNext.BACKWARD)
-
   return (
     <>
       <input multiple accept="audio/mpeg3" type="file" onChange={handleManyFileAddition} />
-      {!currentlyPlaying && <button onClick={startPlaying}>Start</button>}
-      <div className='flex flex-row space-x-3'>
-        <button onClick={playBackward}>Prev</button>
-        <button onClick={playForward}>Next</button>
-      </div>
-      {currentlyPlaying && <SongPlayer handleSongEnd={playForward} currentSong={currentlyPlaying?.songFields} ref={songPlayerRef} />}
       <div
         onDrop={handleListDrop}
         onDragOver={preventDefault}
@@ -176,7 +146,7 @@ const DnDPersonalized = () => {
           <div
             key={`${ele.uniqueKey}-${idx}`}
             className={cn({
-              ["border border-red-300"]: ele.uniqueKey === currentlyPlaying?.uniqueKey,
+              ["border border-red-300"]: ele.uniqueKey === activeItem?.uniqueKey,
             })}
             draggable
             onDragStart={(e) => {
@@ -188,29 +158,27 @@ const DnDPersonalized = () => {
               draggedBoxIdx.current = idx;
             }}
             ref={ele.ref}
-            onClick={() => setCurrentlyPlaying(ele)}
+            onClick={() => setActiveItem(ele)}
           >
-            <SingleSongNode songFields={ele.songFields} />
+            {ele.element(ele.componentFields)}
           </div>
         ))}
       </div>
-      <div>
-        <div
-          className="w-60 min-h-60 border border-dashed border-gray-400"
-          onDragOver={preventDefault}
-          onDrop={handleStashDrop}
-        >
-          {onHoldItems.map((ele, idx) => (
-            <div
-              key={`${ele.uniqueKey}-${idx}`}
-              draggable
-              onDragStart={(e) => {
-                draggingBox.current = ele;
-              }}
-            >
-              <SingleSongNode songFields={ele.songFields} />
-            </div>))}
-        </div>
+      <div
+        className="w-60 min-h-60 border border-dashed border-gray-400"
+        onDragOver={preventDefault}
+        onDrop={handleStashDrop}
+      >
+        {onHoldItems.map((ele, idx) => (
+          <div
+            key={`${ele.uniqueKey}-${idx}`}
+            draggable
+            onDragStart={(e) => {
+              draggingBox.current = ele;
+            }}
+          >
+            {ele.element(ele.componentFields)}
+          </div>))}
       </div>
     </>
   );

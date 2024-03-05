@@ -1,62 +1,79 @@
-import React, { Ref, forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 'react';
-import { SongFields } from '@/hooks/useGetSongTags';
+import { useDndListContext } from '@/state/DnDContext';
+import { BoxElement, SongFields } from '@/types';
 import Image from 'next/image';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
-type SongPlayerProps = {
-  currentSong: SongFields,
-  handleSongEnd: () => void
+enum PlayNext {
+  FORWARD = "forward",
+  BACKWARD = "backward"
 }
 
-export type SongNodeRef = {
-  playSong: () => void;
-  isPlaying: () => boolean;
-  pauseSong: () => void;
-}
-
-const SongPlayer = forwardRef(({ currentSong, handleSongEnd }: SongPlayerProps, ref: Ref<SongNodeRef>) => {
+const SongPlayer = () => {
   const audioRef = useRef<HTMLAudioElement>(null);
-  const isPlayingRef = useRef<boolean>(false);
+  const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const {
+    activeItem = {} as BoxElement<SongFields>,
+    items, setActiveItem
+  } = useDndListContext<BoxElement<SongFields>>();
+
+  const currentSong = activeItem.componentFields
 
   const playSong = useCallback(() => {
-    // console.log('playing', currentSong.title)
     audioRef.current?.play()
-    isPlayingRef.current = true;
-    // no need to add dependencies due to ref
+    setIsPlaying(true);
   }, [])
 
+  const togglePlay = () => {
+    if (isPlaying) audioRef.current?.pause();
+    else audioRef.current?.play();
+    setIsPlaying((prev) => !prev);
+  }
 
   useEffect(() => {
-    playSong();
+    if (currentSong) playSong();
   }, [playSong, currentSong])
 
-  const isPlaying = () => {
-    return isPlayingRef.current;
+  const startPlaying = () => {
+    if (currentSong) return playSong()
+    if (items.length < 1) return;
+    setActiveItem(items[0])
   }
 
+  const playNext = useCallback((direction = PlayNext.BACKWARD) => {
+    if (!currentSong) return;
+    const currIdx = items.findIndex((ele) =>
+      ele.uniqueKey === activeItem.uniqueKey
+    )
+    if (currIdx === -1) return;
+    setActiveItem(
+      items[(currIdx + (direction === PlayNext.FORWARD ? 1 : -1) + items.length) % items.length]
+    )
+  }, [activeItem, items])
 
-  const pauseSong = () => {
-    // console.log('pausing', currentSong.title)
-    audioRef.current?.pause();
-    isPlayingRef.current = false;
-  }
-
-  useImperativeHandle(ref, () => ({
-    playSong, pauseSong, isPlaying
-  }));
+  const playForward = () => playNext(PlayNext.FORWARD)
+  const playBackward = () => playNext(PlayNext.BACKWARD)
 
   return (
     <div>
-      {currentSong.cover && <Image src={currentSong.cover} alt={currentSong.title} width={400} height={400} />}
-      <audio
-        ref={audioRef}
-        controls
-        src={currentSong.audioElement.src}
-        onEnded={handleSongEnd}
-      />
+      {!currentSong && <button onClick={startPlaying}>Start</button>}
+      <div className='flex flex-row space-x-3'>
+        <button onClick={playBackward}>Prev</button>
+        <button onClick={playForward}>Next</button>
+        {currentSong && <button onClick={togglePlay}>{isPlaying ? "Pause" : "Play"}</button>}
+      </div>
+      {currentSong && <>
+        <Image src={currentSong.cover} alt={currentSong.title} width={400} height={400} />
+        <audio
+          ref={audioRef}
+          controls
+          src={currentSong.audioElement.src}
+          onEnded={playBackward}
+          onPause={() => setIsPlaying(false)}
+          onPlay={() => setIsPlaying(true)}
+        />
+      </>}
     </div>
   );
-});
-
-SongPlayer.displayName = "SongPlayer"
+}
 
 export default SongPlayer;

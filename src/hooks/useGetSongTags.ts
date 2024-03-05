@@ -1,12 +1,6 @@
 import React, { useEffect } from 'react';
 import jsonmediatags from "../packages/jsmediatags.min.js";
-
-export type SongFields = {
-  title: string;
-  cover: string;
-  artist: string;
-  audioElement: HTMLAudioElement;
-}
+import { SongFields } from '@/types/index.js';
 
 type JsonMediaTags = {
   title: string;
